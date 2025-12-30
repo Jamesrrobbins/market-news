@@ -77,6 +77,7 @@ st.divider()
 c_glob, c_uk = st.columns(2)
 with c_glob:
     st.subheader("🌍 Global")
+    # This call caused the error before - now fixed in engine
     n_glob = engine.get_news(category='business', limit=5)
     st.success(engine.generate_summary(n_glob, "Global"))
 
