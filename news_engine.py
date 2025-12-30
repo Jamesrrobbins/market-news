@@ -3,6 +3,7 @@ from newsapi import NewsApiClient
 from openai import OpenAI
 import streamlit as st
 import requests
+import xml.etree.ElementTree as ET # Standard library for parsing Google RSS
 import os
 
 # --- CONFIGURATION ---
@@ -12,13 +13,14 @@ def get_secret(key_name):
     except:
         return os.environ.get(key_name)
 
+# We still keep these for the AI, even though we use Google for news now
 NEWS_API_KEY = get_secret('NEWS_API_KEY')
 OPENAI_API_KEY = get_secret('OPENAI_API_KEY')
 
 client = OpenAI(api_key=OPENAI_API_KEY)
 newsapi = NewsApiClient(api_key=NEWS_API_KEY)
 
-# --- WEATHER ---
+# --- WEATHER (Met Office) ---
 def get_weather(location_name):
     try:
         geo_url = f"https://geocoding-api.open-meteo.com/v1/search?name={location_name}&count=1&language=en&format=json"
@@ -45,23 +47,39 @@ def get_weather(location_name):
     except:
         return {"error": "N/A"}
 
-# --- NEWS FETCHING ---
-def get_news(query=None, country=None, category=None, domains=None, limit=10):
+# --- GOOGLE NEWS FETCHER (The Fix) ---
+def get_google_news(query, limit=5):
     try:
-        if domains:
-            data = newsapi.get_everything(q=query or 'General', domains=domains, language='en', sort_by='publishedAt')
-        elif category or country:
-            data = newsapi.get_top_headlines(country=country, category=category, language='en')
-        else:
-            data = newsapi.get_everything(q=query, language='en', sort_by='publishedAt')
+        # Force UK Region (gl=GB) and English (hl=en-GB)
+        # This URL returns an XML RSS feed
+        url = f"https://news.google.com/rss/search?q={query}&hl=en-GB&gl=GB&ceid=GB:en"
+        response = requests.get(url, timeout=5)
+        
+        # Parse XML
+        root = ET.fromstring(response.content)
+        items = []
+        
+        # Iterate through news items
+        for item in root.findall('./channel/item')[:limit]:
+            title = item.find('title').text
+            link = item.find('link').text
+            pubDate = item.find('pubDate').text
             
-        articles = data.get('articles', [])[:limit]
-        return [{'title': a['title'], 'source': a['source']['name'], 'url': a['url']} for a in articles]
+            # Clean up title (Google often puts " - SourceName" at the end)
+            source = "Google News"
+            if " - " in title:
+                parts = title.rsplit(" - ", 1)
+                title = parts[0]
+                source = parts[1]
+                
+            items.append({'title': title, 'url': link, 'source': source, 'date': pubDate})
+            
+        return items
     except Exception as e:
-        print(f"News Error: {e}")
+        print(f"Google News Error: {e}")
         return []
 
-# --- STOCK DATA (With 1Y History & Analysis) ---
+# --- STOCK DATA ---
 def get_stock_data(ticker):
     stock_obj = {
         "symbol": ticker, 
@@ -72,16 +90,15 @@ def get_stock_data(ticker):
         "news": []
     }
 
+    # 1. Price Data
     try:
         t = yf.Ticker(ticker)
-        # Fetch 1 Year of data to calculate all metrics
         hist = t.history(period="1y")
         
         if not hist.empty:
             curr = hist['Close'].iloc[-1]
             stock_obj["price"] = f"${curr:.2f}"
             
-            # Helper to calc change safely
             def get_change(days):
                 if len(hist) > days:
                     prev = hist['Close'].iloc[-(days+1)]
@@ -91,41 +108,40 @@ def get_stock_data(ticker):
                 return "N/A", "off"
 
             stock_obj["chg_1d"], stock_obj["color_1d"] = get_change(1)
-            stock_obj["chg_1m"], stock_obj["color_1m"] = get_change(21) # ~1 trading month
-            stock_obj["chg_1y"], stock_obj["color_1y"] = get_change(250) # ~1 trading year
+            stock_obj["chg_1m"], stock_obj["color_1m"] = get_change(21) 
+            stock_obj["chg_1y"], stock_obj["color_1y"] = get_change(250) 
             
+            # Try Yahoo news first
             if t.news:
-                for n in t.news[:5]:
+                for n in t.news[:3]:
                     link = n.get('link') or n.get('url') or '#'
-                    stock_obj["news"].append({'title': n['title'], 'url': link, 'source': 'Yahoo'})
+                    stock_obj["news"].append({'title': n['title'], 'url': link, 'source': 'Yahoo Finance'})
     except:
         pass 
 
-    # Fallback to NewsAPI if Yahoo is empty
+    # 2. Google News Fallback (Much better for finding specific company news)
     if not stock_obj["news"]:
-        # Search for "Company Name" OR "Ticker Stock" to get better results
-        fallback_news = get_news(query=f"{ticker} company stock", limit=5)
+        # Query: "TICKER stock news" (e.g. "NVDA stock news")
+        fallback_news = get_google_news(query=f"{ticker} stock news", limit=4)
         stock_obj["news"] = fallback_news
 
     return stock_obj
 
-# --- AI SUMMARIZER (Strict Analyst Mode) ---
+# --- AI SUMMARIZER ---
 def generate_summary(news_items, context_type):
-    if not news_items: return f"No significant news found for {context_type}."
+    if not news_items: return f"No recent news found for {context_type}."
     
     text_data = "\n".join([f"- {n['title']} ({n['source']})" for n in news_items])
     
-    # NEW PROMPT: Filters out ads and focuses on material events
     prompt = f"""
-    You are a senior financial analyst. Review the recent news titles below for {context_type}.
+    You are a financial news anchor. Summarize the following stories for {context_type}.
     
     RULES:
-    1. IGNORE any promotions, ads, "best stock to buy" lists, or generic market noise.
-    2. Focus ONLY on material business developments: Earnings, Products, Legal Issues, Mergers, or significant price movement causes.
-    3. If the news is just junk/ads, say "No material developments found."
-    4. Format as 2-3 concise bullet points.
+    1. Filter out ads, promotions, or irrelevant clickbait.
+    2. Focus on: Local events (for location news), Business moves (for stocks), or National headlines (for UK).
+    3. Be concise. Max 3 bullet points.
     
-    NEWS DATA:
+    STORIES:
     {text_data}
     """
     
@@ -136,5 +152,5 @@ def generate_summary(news_items, context_type):
         )
         return response.choices[0].message.content
     except:
-        return "AI Analysis Unavailable."
+        return "AI Summary Unavailable."
         
