@@ -44,6 +44,10 @@ with col1:
         st.error("Could not load weather.")
 
 with col2:
+    if st.button("🔄 Refresh Data"):
+        st.cache_data.clear()
+        st.rerun()
+    
     with st.spinner("Scanning local sources..."):
         local_news = engine.get_news(query=user_location, limit=5)
         if local_news:
