@@ -32,7 +32,7 @@ def load_watchlist():
     if os.path.exists(WATCHLIST_FILE):
         with open(WATCHLIST_FILE, "r") as f:
             return json.load(f)
-    return ["AAPL", "NVDA", "TSLA"] # Default if no file exists
+    return ["AAPL", "NVDA", "TSLA"] 
 
 def save_watchlist(new_list):
     with open(WATCHLIST_FILE, "w") as f:
@@ -42,14 +42,6 @@ def save_watchlist(new_list):
 if 'stock_list' not in st.session_state:
     st.session_state['stock_list'] = load_watchlist()
 
-# 3. ACTION FUNCTIONS
-def add_stock_action():
-    ticker = st.session_state.new_ticker_input.upper().strip()
-    if ticker and ticker not in st.session_state['stock_list']:
-        st.session_state['stock_list'].append(ticker)
-        save_watchlist(st.session_state['stock_list'])
-        st.session_state.new_ticker_input = "" # Clear box
-
 def remove_stock_action(ticker_to_remove):
     if ticker_to_remove in st.session_state['stock_list']:
         st.session_state['stock_list'].remove(ticker_to_remove)
@@ -57,25 +49,28 @@ def remove_stock_action(ticker_to_remove):
 
 # --- APP LAYOUT ---
 
-# TOP BAR: Settings & Controls (Moved from sidebar for visibility)
+# TOP BAR: Settings & Controls
 with st.expander("⚙️ Settings & Watchlist Manager", expanded=False):
     c1, c2 = st.columns([1, 1])
+    
+    # LOCATION SETTING
     with c1:
         st.subheader("📍 Location")
-        # Default set to Auchterarder, Scotland
         user_location = st.text_input("Local News Area", value="Auchterarder, Scotland")
     
+    # ADD STOCK FORM (Fixed: Uses st.form to avoid errors and improve mobile layout)
     with c2:
         st.subheader("➕ Add Stock")
-        col_input, col_btn = st.columns([3, 1])
-        with col_input:
-            st.text_input("Ticker (e.g. AMZN)", key="new_ticker_input")
-        with col_btn:
-            st.write("") # Spacer
-            st.write("") 
-            if st.button("Add"):
-                add_stock_action()
-                st.rerun()
+        with st.form("add_stock_form", clear_on_submit=True):
+            new_ticker = st.text_input("Ticker (e.g. AMZN)")
+            submitted = st.form_submit_button("Add Stock")
+            
+            if submitted and new_ticker:
+                ticker_clean = new_ticker.upper().strip()
+                if ticker_clean not in st.session_state['stock_list']:
+                    st.session_state['stock_list'].append(ticker_clean)
+                    save_watchlist(st.session_state['stock_list'])
+                    st.rerun()
 
     st.write("Current Watchlist: " + ", ".join(st.session_state['stock_list']))
     if st.button("🔄 Refresh All Data"):
