@@ -46,13 +46,11 @@ def get_weather(location_name):
         return {"error": "N/A"}
 
 # --- NEWS FETCHING ---
-# FIXED: Added 'category' back to arguments
 def get_news(query=None, country=None, category=None, domains=None, limit=10):
     try:
         if domains:
             data = newsapi.get_everything(q=query or 'General', domains=domains, language='en', sort_by='publishedAt')
         elif category or country:
-            # logic for top headlines
             data = newsapi.get_top_headlines(country=country, category=category, language='en')
         else:
             data = newsapi.get_everything(q=query, language='en', sort_by='publishedAt')
@@ -63,48 +61,73 @@ def get_news(query=None, country=None, category=None, domains=None, limit=10):
         print(f"News Error: {e}")
         return []
 
-# --- STOCK DATA (With Working Fallback) ---
+# --- STOCK DATA (With 1Y History & Analysis) ---
 def get_stock_data(ticker):
     stock_obj = {
         "symbol": ticker, 
         "price": "N/A", 
-        "change": "0.00%", 
-        "color": "off", 
+        "chg_1d": "0.00%", "color_1d": "off",
+        "chg_1m": "0.00%", "color_1m": "off",
+        "chg_1y": "0.00%", "color_1y": "off",
         "news": []
     }
 
-    # 1. Try to get Price
     try:
         t = yf.Ticker(ticker)
-        hist = t.history(period="5d")
+        # Fetch 1 Year of data to calculate all metrics
+        hist = t.history(period="1y")
+        
         if not hist.empty:
             curr = hist['Close'].iloc[-1]
-            prev = hist['Close'].iloc[-2]
-            pct = ((curr - prev) / prev) * 100
             stock_obj["price"] = f"${curr:.2f}"
-            stock_obj["change"] = f"{pct:+.2f}%"
-            stock_obj["color"] = "up" if pct >= 0 else "down"
+            
+            # Helper to calc change safely
+            def get_change(days):
+                if len(hist) > days:
+                    prev = hist['Close'].iloc[-(days+1)]
+                    pct = ((curr - prev) / prev) * 100
+                    color = "green" if pct >= 0 else "red"
+                    return f"{pct:+.2f}%", color
+                return "N/A", "off"
+
+            stock_obj["chg_1d"], stock_obj["color_1d"] = get_change(1)
+            stock_obj["chg_1m"], stock_obj["color_1m"] = get_change(21) # ~1 trading month
+            stock_obj["chg_1y"], stock_obj["color_1y"] = get_change(250) # ~1 trading year
             
             if t.news:
-                for n in t.news[:3]:
+                for n in t.news[:5]:
                     link = n.get('link') or n.get('url') or '#'
                     stock_obj["news"].append({'title': n['title'], 'url': link, 'source': 'Yahoo'})
     except:
         pass 
 
-    # 2. NewsAPI Fallback (If Yahoo fails or returns no news)
+    # Fallback to NewsAPI if Yahoo is empty
     if not stock_obj["news"]:
-        # Search specifically for the stock ticker + "stock"
-        fallback_news = get_news(query=f"{ticker} stock", limit=3)
+        # Search for "Company Name" OR "Ticker Stock" to get better results
+        fallback_news = get_news(query=f"{ticker} company stock", limit=5)
         stock_obj["news"] = fallback_news
 
     return stock_obj
 
-# --- AI SUMMARIZER ---
+# --- AI SUMMARIZER (Strict Analyst Mode) ---
 def generate_summary(news_items, context_type):
-    if not news_items: return f"No recent news found for {context_type}."
-    text_data = "\n".join([f"- {n['title']}" for n in news_items])
-    prompt = f"Summarize this {context_type} news into 3 short bullet points. NEWS: {text_data}"
+    if not news_items: return f"No significant news found for {context_type}."
+    
+    text_data = "\n".join([f"- {n['title']} ({n['source']})" for n in news_items])
+    
+    # NEW PROMPT: Filters out ads and focuses on material events
+    prompt = f"""
+    You are a senior financial analyst. Review the recent news titles below for {context_type}.
+    
+    RULES:
+    1. IGNORE any promotions, ads, "best stock to buy" lists, or generic market noise.
+    2. Focus ONLY on material business developments: Earnings, Products, Legal Issues, Mergers, or significant price movement causes.
+    3. If the news is just junk/ads, say "No material developments found."
+    4. Format as 2-3 concise bullet points.
+    
+    NEWS DATA:
+    {text_data}
+    """
     
     try:
         response = client.chat.completions.create(
@@ -113,5 +136,5 @@ def generate_summary(news_items, context_type):
         )
         return response.choices[0].message.content
     except:
-        return "AI Summary Unavailable."
+        return "AI Analysis Unavailable."
         
