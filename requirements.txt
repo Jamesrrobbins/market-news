@@ -2,3 +2,5 @@ streamlit
 yfinance
 newsapi-python
 openai
+requests
+
