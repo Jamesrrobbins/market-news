@@ -19,10 +19,10 @@ OPENAI_API_KEY = get_secret('OPENAI_API_KEY')
 client = OpenAI(api_key=OPENAI_API_KEY)
 newsapi = NewsApiClient(api_key=NEWS_API_KEY)
 
-# --- WEATHER (Free API - Open-Meteo) ---
+# --- WEATHER (Powered by Met Office Data via Open-Meteo) ---
 def get_weather(location_name):
     try:
-        # 1. Geocoding (City Name -> Lat/Lon)
+        # 1. Geocoding
         geo_url = f"https://geocoding-api.open-meteo.com/v1/search?name={location_name}&count=1&language=en&format=json"
         geo_data = requests.get(geo_url).json()
         
@@ -32,8 +32,8 @@ def get_weather(location_name):
         lat = geo_data['results'][0]['latitude']
         lon = geo_data['results'][0]['longitude']
         
-        # 2. Weather Data
-        weather_url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m&wind_speed_unit=mph"
+        # 2. Weather Data (Using 'ukmo_seamless' = Met Office Global Model)
+        weather_url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m&wind_speed_unit=mph&models=ukmo_seamless"
         w_data = requests.get(weather_url).json()['current']
         
         # Helper to decode weather codes
@@ -45,19 +45,23 @@ def get_weather(location_name):
             "feels_like": f"{w_data['apparent_temperature']}°C",
             "wind": f"{w_data['wind_speed_10m']} mph",
             "humidity": f"{w_data['relative_humidity_2m']}%",
-            "condition": condition
+            "condition": condition,
+            "source": "Met Office (UKMO)"
         }
     except Exception as e:
         return {"error": str(e)}
 
 # --- NEWS FETCHING ---
-def get_news(query=None, country=None, category=None, limit=5):
+def get_news(query=None, country=None, category=None, domains=None, limit=5):
     try:
-        if country or category:
-            # Top headlines (Global/National)
+        if domains:
+            # Specific websites (Guardian, BBC, Sky)
+            data = newsapi.get_everything(q=query or 'UK', domains=domains, language='en', sort_by='publishedAt')
+        elif country or category:
+            # Top headlines (Global)
             data = newsapi.get_top_headlines(q=query, country=country, category=category, language='en')
         else:
-            # Everything (Local/Specific topics)
+            # Everything (Local)
             data = newsapi.get_everything(q=query, language='en', sort_by='publishedAt')
             
         articles = data.get('articles', [])[:limit]
@@ -65,18 +69,15 @@ def get_news(query=None, country=None, category=None, limit=5):
     except Exception:
         return []
 
-# --- STOCK DATA (Prices + News) ---
+# --- STOCK DATA ---
 def get_stock_data(ticker):
     try:
         t = yf.Ticker(ticker)
-        # Get history for calculations
         hist = t.history(period="1y")
-        
         if hist.empty: return None
 
         curr = hist['Close'].iloc[-1]
         
-        # Calculate changes safely
         def calc_change(days):
             if len(hist) > days:
                 prev = hist['Close'].iloc[-(days+1)]
@@ -89,8 +90,8 @@ def get_stock_data(ticker):
         return {
             "price": curr,
             "chg_1d": calc_change(1),
-            "chg_1mo": calc_change(21), # approx trading days
-            "chg_1y": calc_change(252), # approx trading days
+            "chg_1mo": calc_change(21), 
+            "chg_1y": calc_change(252),
             "news": news_titles
         }
     except:
@@ -113,4 +114,4 @@ def generate_summary(text_data, context_type):
         messages=[{"role": "user", "content": prompt}]
     )
     return response.choices[0].message.content
-        
+    
