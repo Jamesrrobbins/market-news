@@ -21,17 +21,22 @@ st.markdown("""
         border: 1px solid #363b47;
         color: #e0e0e0;
     }
+    /* Fix for mobile button tapping */
+    div[data-testid="stForm"] { border: none; padding: 0;}
     .block-container { padding-top: 1rem; }
 </style>
 """, unsafe_allow_html=True)
 
-# 2. PERSISTENCE SYSTEM (The "Remember Forever" Part)
+# 2. PERSISTENCE SYSTEM (Remember Stocks)
 WATCHLIST_FILE = "watchlist.json"
 
 def load_watchlist():
     if os.path.exists(WATCHLIST_FILE):
-        with open(WATCHLIST_FILE, "r") as f:
-            return json.load(f)
+        try:
+            with open(WATCHLIST_FILE, "r") as f:
+                return json.load(f)
+        except:
+            pass # If file is corrupt, return default
     return ["AAPL", "NVDA", "TSLA"] 
 
 def save_watchlist(new_list):
@@ -49,21 +54,23 @@ def remove_stock_action(ticker_to_remove):
 
 # --- APP LAYOUT ---
 
-# TOP BAR: Settings & Controls
+# TOP BAR: Settings (Using Columns for layout)
 with st.expander("⚙️ Settings & Watchlist Manager", expanded=False):
     c1, c2 = st.columns([1, 1])
     
     # LOCATION SETTING
     with c1:
         st.subheader("📍 Location")
+        # Fixed default to Auchterarder
         user_location = st.text_input("Local News Area", value="Auchterarder, Scotland")
     
-    # ADD STOCK FORM (Fixed: Uses st.form to avoid errors and improve mobile layout)
+    # ADD STOCK FORM (Fixed: No more crash)
     with c2:
         st.subheader("➕ Add Stock")
+        # This 'form' handles the clearing automatically - no error code needed
         with st.form("add_stock_form", clear_on_submit=True):
-            new_ticker = st.text_input("Ticker (e.g. AMZN)")
-            submitted = st.form_submit_button("Add Stock")
+            new_ticker = st.text_input("Enter Ticker (e.g. AMZN)")
+            submitted = st.form_submit_button("Add Stock", use_container_width=True)
             
             if submitted and new_ticker:
                 ticker_clean = new_ticker.upper().strip()
@@ -72,7 +79,7 @@ with st.expander("⚙️ Settings & Watchlist Manager", expanded=False):
                     save_watchlist(st.session_state['stock_list'])
                     st.rerun()
 
-    st.write("Current Watchlist: " + ", ".join(st.session_state['stock_list']))
+    st.caption(f"Watching: {', '.join(st.session_state['stock_list'])}")
     if st.button("🔄 Refresh All Data"):
         st.cache_data.clear()
         st.rerun()
