@@ -6,7 +6,7 @@ import os
 # PAGE SETUP
 st.set_page_config(page_title="Market Prime", page_icon="📉", layout="wide")
 
-# 1. CUSTOM CSS
+# CSS
 st.markdown("""
 <style>
     .stApp { background-color: #0e1117; }
@@ -21,13 +21,12 @@ st.markdown("""
         border: 1px solid #363b47;
         color: #e0e0e0;
     }
-    /* Fix for mobile button tapping */
     div[data-testid="stForm"] { border: none; padding: 0;}
     .block-container { padding-top: 1rem; }
 </style>
 """, unsafe_allow_html=True)
 
-# 2. PERSISTENCE SYSTEM (Remember Stocks)
+# PERSISTENCE
 WATCHLIST_FILE = "watchlist.json"
 
 def load_watchlist():
@@ -36,14 +35,13 @@ def load_watchlist():
             with open(WATCHLIST_FILE, "r") as f:
                 return json.load(f)
         except:
-            pass # If file is corrupt, return default
+            pass
     return ["AAPL", "NVDA", "TSLA"] 
 
 def save_watchlist(new_list):
     with open(WATCHLIST_FILE, "w") as f:
         json.dump(new_list, f)
 
-# Initialize Session State
 if 'stock_list' not in st.session_state:
     st.session_state['stock_list'] = load_watchlist()
 
@@ -54,24 +52,16 @@ def remove_stock_action(ticker_to_remove):
 
 # --- APP LAYOUT ---
 
-# TOP BAR: Settings (Using Columns for layout)
 with st.expander("⚙️ Settings & Watchlist Manager", expanded=False):
     c1, c2 = st.columns([1, 1])
-    
-    # LOCATION SETTING
     with c1:
         st.subheader("📍 Location")
-        # Fixed default to Auchterarder
         user_location = st.text_input("Local News Area", value="Auchterarder, Scotland")
-    
-    # ADD STOCK FORM (Fixed: No more crash)
     with c2:
         st.subheader("➕ Add Stock")
-        # This 'form' handles the clearing automatically - no error code needed
         with st.form("add_stock_form", clear_on_submit=True):
             new_ticker = st.text_input("Enter Ticker (e.g. AMZN)")
             submitted = st.form_submit_button("Add Stock", use_container_width=True)
-            
             if submitted and new_ticker:
                 ticker_clean = new_ticker.upper().strip()
                 if ticker_clean not in st.session_state['stock_list']:
@@ -86,9 +76,8 @@ with st.expander("⚙️ Settings & Watchlist Manager", expanded=False):
 
 st.title("📉 Market Prime")
 
-# SECTION A: WEATHER & LOCAL
+# SECTION A
 col_w, col_news = st.columns([1, 2])
-
 with col_w:
     weather = engine.get_weather(user_location)
     if weather and "error" not in weather:
@@ -110,9 +99,8 @@ with col_news:
 
 st.divider()
 
-# SECTION B: GLOBAL INTELLIGENCE
+# SECTION B
 g_col, uk_col = st.columns(2)
-
 with g_col:
     st.subheader("🌍 Global Headlines")
     global_news = engine.get_news(category='business', limit=7)
@@ -133,39 +121,25 @@ with uk_col:
 
 st.divider()
 
-# SECTION C: WATCHLIST CARDS
+# SECTION C: WATCHLIST
 st.subheader("📈 Active Watchlist")
 
 if not st.session_state['stock_list']:
     st.info("Your watchlist is empty. Open 'Settings' at the top to add stocks.")
 
+# --- THE FIX IS HERE ---
 for ticker in st.session_state['stock_list']:
-    data = engine.get_stock_data(ticker)
+    # Display a loading message while processing each card
+    with st.spinner(f"Loading {ticker}..."):
+        data = engine.get_stock_data(ticker)
     
-    if data:
+    if data and "error" not in data:
         with st.container():
-            # Header with Delete Button
             c1, c2, c3, c4, c5 = st.columns([3, 1, 1, 1, 0.5])
             c1.markdown(f"### {ticker} <span style='color:gray; font-size:0.8em'>${data['price']:.2f}</span>", unsafe_allow_html=True)
             c2.metric("1D", f"{data['chg_1d']:.2f}%")
             c3.metric("1M", f"{data['chg_1mo']:.2f}%")
             c4.metric("1Y", f"{data['chg_1y']:.2f}%")
             
-            # The Delete 'X' Button
             if c5.button("✕", key=f"del_{ticker}"):
-                remove_stock_action(ticker)
-                st.rerun()
-            
-            # AI Insight
-            if data['news']:
-                ai_col, link_col = st.columns([3, 1])
-                with ai_col:
-                    s_sum = engine.generate_summary(data['news'], f"{ticker} Stock")
-                    st.info(s_sum)
-                with link_col:
-                    st.caption("Read More:")
-                    for n in data['news'][:3]:
-                        st.markdown(f"[[Link]]({n['url']}) {n['title'][:15]}...")
-            
-            st.markdown("---")
-            
+                
