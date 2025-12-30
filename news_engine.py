@@ -46,23 +46,25 @@ def get_weather(location_name):
         return {"error": "N/A"}
 
 # --- NEWS FETCHING ---
-def get_news(query=None, country=None, domains=None, limit=10):
+# FIXED: Added 'category' back to arguments
+def get_news(query=None, country=None, category=None, domains=None, limit=10):
     try:
         if domains:
             data = newsapi.get_everything(q=query or 'General', domains=domains, language='en', sort_by='publishedAt')
-        elif country:
-            data = newsapi.get_top_headlines(country=country, language='en')
+        elif category or country:
+            # logic for top headlines
+            data = newsapi.get_top_headlines(country=country, category=category, language='en')
         else:
             data = newsapi.get_everything(q=query, language='en', sort_by='publishedAt')
             
         articles = data.get('articles', [])[:limit]
         return [{'title': a['title'], 'source': a['source']['name'], 'url': a['url']} for a in articles]
-    except:
+    except Exception as e:
+        print(f"News Error: {e}")
         return []
 
-# --- STOCK DATA (With Fallback) ---
+# --- STOCK DATA (With Working Fallback) ---
 def get_stock_data(ticker):
-    # Default object if everything fails
     stock_obj = {
         "symbol": ticker, 
         "price": "N/A", 
@@ -71,7 +73,7 @@ def get_stock_data(ticker):
         "news": []
     }
 
-    # 1. Try to get Price (Might fail on Cloud)
+    # 1. Try to get Price
     try:
         t = yf.Ticker(ticker)
         hist = t.history(period="5d")
@@ -83,16 +85,16 @@ def get_stock_data(ticker):
             stock_obj["change"] = f"{pct:+.2f}%"
             stock_obj["color"] = "up" if pct >= 0 else "down"
             
-            # Try getting news from Yahoo
             if t.news:
                 for n in t.news[:3]:
                     link = n.get('link') or n.get('url') or '#'
                     stock_obj["news"].append({'title': n['title'], 'url': link, 'source': 'Yahoo'})
     except:
-        pass # Ignore price errors, proceed to fallback news
+        pass 
 
-    # 2. If Yahoo gave no news (or failed), use NewsAPI Fallback
+    # 2. NewsAPI Fallback (If Yahoo fails or returns no news)
     if not stock_obj["news"]:
+        # Search specifically for the stock ticker + "stock"
         fallback_news = get_news(query=f"{ticker} stock", limit=3)
         stock_obj["news"] = fallback_news
 
@@ -100,7 +102,7 @@ def get_stock_data(ticker):
 
 # --- AI SUMMARIZER ---
 def generate_summary(news_items, context_type):
-    if not news_items: return "No recent news found."
+    if not news_items: return f"No recent news found for {context_type}."
     text_data = "\n".join([f"- {n['title']}" for n in news_items])
     prompt = f"Summarize this {context_type} news into 3 short bullet points. NEWS: {text_data}"
     
