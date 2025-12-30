@@ -142,4 +142,25 @@ for ticker in st.session_state['stock_list']:
             c4.metric("1Y", f"{data['chg_1y']:.2f}%")
             
             if c5.button("✕", key=f"del_{ticker}"):
+                remove_stock_action(ticker)
+                st.rerun()
+            
+            if data['news']:
+                ai_col, link_col = st.columns([3, 1])
+                with ai_col:
+                    s_sum = engine.generate_summary(data['news'], f"{ticker} Stock")
+                    st.info(s_sum)
+                with link_col:
+                    st.caption("Read More:")
+                    for n in data['news'][:3]:
+                        st.markdown(f"[[Link]]({n['url']}) {n['title'][:15]}...")
+            st.markdown("---")
+            
+    else:
+        # VISUAL ERROR HANDLING
+        with st.container():
+            st.error(f"⚠️ Could not load data for **{ticker}**. It may be delisted or the API is blocking requests.")
+            if st.button("Delete", key=f"del_err_{ticker}"):
+                remove_stock_action(ticker)
+                st.rerun()
                 
