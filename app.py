@@ -32,7 +32,7 @@ col1, col2 = st.columns([1, 2])
 with col1:
     weather = engine.get_weather(user_location)
     if weather and "error" not in weather:
-        st.caption(f"Source: {weather['source']}") # Displays 'Met Office'
+        st.caption(f"Source: {weather['source']}")
         c1, c2 = st.columns(2)
         c1.metric("Temperature", weather['temp'], f"Feels {weather['feels_like']}")
         c2.metric("Condition", weather['condition'])
@@ -91,4 +91,4 @@ for ticker in stock_list:
                 st.success(f"✨ **AI Insight:** {s_sum}")
             else:
                 st.caption("No recent news headlines.")
-            
+                
