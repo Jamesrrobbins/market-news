@@ -2,12 +2,15 @@ import yfinance as yf
 from newsapi import NewsApiClient
 from openai import OpenAI
 import streamlit as st
+import requests
 import os
+import datetime
 
+# --- CONFIGURATION ---
 def get_secret(key_name):
     try:
         return st.secrets[key_name]
-    except (FileNotFoundError, KeyError, AttributeError):
+    except:
         return os.environ.get(key_name)
 
 NEWS_API_KEY = get_secret('NEWS_API_KEY')
@@ -16,49 +19,98 @@ OPENAI_API_KEY = get_secret('OPENAI_API_KEY')
 client = OpenAI(api_key=OPENAI_API_KEY)
 newsapi = NewsApiClient(api_key=NEWS_API_KEY)
 
-def get_market_news():
+# --- WEATHER (Free API - Open-Meteo) ---
+def get_weather(location_name):
     try:
-        top_headlines = newsapi.get_top_headlines(category='business', language='en', country='us')
-        articles = top_headlines.get('articles', [])[:5]
-        return [f"{a['title']} - {a['source']['name']}" for a in articles]
+        # 1. Geocoding (City Name -> Lat/Lon)
+        geo_url = f"https://geocoding-api.open-meteo.com/v1/search?name={location_name}&count=1&language=en&format=json"
+        geo_data = requests.get(geo_url).json()
+        
+        if not geo_data.get('results'):
+            return None
+            
+        lat = geo_data['results'][0]['latitude']
+        lon = geo_data['results'][0]['longitude']
+        
+        # 2. Weather Data
+        weather_url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m&wind_speed_unit=mph"
+        w_data = requests.get(weather_url).json()['current']
+        
+        # Helper to decode weather codes
+        weather_codes = {0: "Clear Sky", 1: "Mainly Clear", 2: "Partly Cloudy", 3: "Overcast", 45: "Fog", 51: "Drizzle", 61: "Rain", 71: "Snow", 95: "Thunderstorm"}
+        condition = weather_codes.get(w_data['weather_code'], "Variable")
+        
+        return {
+            "temp": f"{w_data['temperature_2m']}°C",
+            "feels_like": f"{w_data['apparent_temperature']}°C",
+            "wind": f"{w_data['wind_speed_10m']} mph",
+            "humidity": f"{w_data['relative_humidity_2m']}%",
+            "condition": condition
+        }
     except Exception as e:
-        return [f"Error fetching market news: {e}"]
+        return {"error": str(e)}
 
-def get_stock_news(tickers):
-    stock_news = {}
-    for ticker in tickers:
-        try:
-            ticker_obj = yf.Ticker(ticker)
-            news = ticker_obj.news[:3]
-            headlines = [n['title'] for n in news]
-            stock_news[ticker] = headlines
-        except Exception as e:
-            stock_news[ticker] = [f"Could not fetch news: {e}"]
-    return stock_news
+# --- NEWS FETCHING ---
+def get_news(query=None, country=None, category=None, limit=5):
+    try:
+        if country or category:
+            # Top headlines (Global/National)
+            data = newsapi.get_top_headlines(q=query, country=country, category=category, language='en')
+        else:
+            # Everything (Local/Specific topics)
+            data = newsapi.get_everything(q=query, language='en', sort_by='publishedAt')
+            
+        articles = data.get('articles', [])[:limit]
+        return [f"{a['title']} ({a['source']['name']})" for a in articles]
+    except Exception:
+        return []
 
-def summarize_content(market_news, stock_news_dict):
-    market_text = "\n".join(market_news)
-    stock_text = ""
-    for ticker, stories in stock_news_dict.items():
-        stock_text += f"\n{ticker}:\n" + "\n".join([f"- {s}" for s in stories])
+# --- STOCK DATA (Prices + News) ---
+def get_stock_data(ticker):
+    try:
+        t = yf.Ticker(ticker)
+        # Get history for calculations
+        hist = t.history(period="1y")
+        
+        if hist.empty: return None
 
+        curr = hist['Close'].iloc[-1]
+        
+        # Calculate changes safely
+        def calc_change(days):
+            if len(hist) > days:
+                prev = hist['Close'].iloc[-(days+1)]
+                return ((curr - prev) / prev) * 100
+            return 0.0
+
+        news_items = t.news[:3] if t.news else []
+        news_titles = [n['title'] for n in news_items]
+        
+        return {
+            "price": curr,
+            "chg_1d": calc_change(1),
+            "chg_1mo": calc_change(21), # approx trading days
+            "chg_1y": calc_change(252), # approx trading days
+            "news": news_titles
+        }
+    except:
+        return None
+
+# --- AI SUMMARIZER ---
+def generate_summary(text_data, context_type):
+    if not text_data: return "No recent news found."
+    
     prompt = f"""
-    You are a financial analyst. Summarize the following news into a daily briefing.
+    Summarize this {context_type} news into a single, flowing paragraph (approx 3-4 sentences). 
+    Focus on the most impactful facts.
     
-    SECTION 1: MACRO MARKET (Summarize the general vibe in 3 bullet points)
-    {market_text}
-
-    SECTION 2: MY PORTFOLIO (Give a 1-sentence takeaway for each stock based on the news)
-    {stock_text}
-    
-    Keep it professional, concise, and actionable.
+    NEWS DATA:
+    {text_data}
     """
-
+    
     response = client.chat.completions.create(
         model="gpt-4o-mini",
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.7
+        messages=[{"role": "user", "content": prompt}]
     )
-    
     return response.choices[0].message.content
-  
+        
