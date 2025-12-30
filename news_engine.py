@@ -4,7 +4,6 @@ from openai import OpenAI
 import streamlit as st
 import requests
 import os
-import datetime
 
 # --- CONFIGURATION ---
 def get_secret(key_name):
@@ -19,10 +18,9 @@ OPENAI_API_KEY = get_secret('OPENAI_API_KEY')
 client = OpenAI(api_key=OPENAI_API_KEY)
 newsapi = NewsApiClient(api_key=NEWS_API_KEY)
 
-# --- WEATHER (Powered by Met Office Data via Open-Meteo) ---
+# --- WEATHER (Met Office via Open-Meteo) ---
 def get_weather(location_name):
     try:
-        # 1. Geocoding
         geo_url = f"https://geocoding-api.open-meteo.com/v1/search?name={location_name}&count=1&language=en&format=json"
         geo_data = requests.get(geo_url).json()
         
@@ -32,11 +30,9 @@ def get_weather(location_name):
         lat = geo_data['results'][0]['latitude']
         lon = geo_data['results'][0]['longitude']
         
-        # 2. Weather Data (Using 'ukmo_seamless' = Met Office Global Model)
         weather_url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m&wind_speed_unit=mph&models=ukmo_seamless"
         w_data = requests.get(weather_url).json()['current']
         
-        # Helper to decode weather codes
         weather_codes = {0: "Clear Sky", 1: "Mainly Clear", 2: "Partly Cloudy", 3: "Overcast", 45: "Fog", 51: "Drizzle", 61: "Rain", 71: "Snow", 95: "Thunderstorm"}
         condition = weather_codes.get(w_data['weather_code'], "Variable")
         
@@ -51,25 +47,24 @@ def get_weather(location_name):
     except Exception as e:
         return {"error": str(e)}
 
-# --- NEWS FETCHING ---
-def get_news(query=None, country=None, category=None, domains=None, limit=5):
+# --- NEWS FETCHING (With Links) ---
+def get_news(query=None, country=None, category=None, domains=None, limit=10):
     try:
         if domains:
-            # Specific websites (Guardian, BBC, Sky)
             data = newsapi.get_everything(q=query or 'UK', domains=domains, language='en', sort_by='publishedAt')
         elif country or category:
-            # Top headlines (Global)
             data = newsapi.get_top_headlines(q=query, country=country, category=category, language='en')
         else:
-            # Everything (Local)
             data = newsapi.get_everything(q=query, language='en', sort_by='publishedAt')
             
         articles = data.get('articles', [])[:limit]
-        return [f"{a['title']} ({a['source']['name']})" for a in articles]
+        
+        # Return a list of dictionaries with title AND url
+        return [{'title': a['title'], 'source': a['source']['name'], 'url': a['url']} for a in articles]
     except Exception:
         return []
 
-# --- STOCK DATA ---
+# --- STOCK DATA (Prices + News Links) ---
 def get_stock_data(ticker):
     try:
         t = yf.Ticker(ticker)
@@ -84,26 +79,34 @@ def get_stock_data(ticker):
                 return ((curr - prev) / prev) * 100
             return 0.0
 
-        news_items = t.news[:3] if t.news else []
-        news_titles = [n['title'] for n in news_items]
-        
+        # yfinance news often has a 'link' or 'url' field
+        news_items = []
+        if t.news:
+            for n in t.news[:5]:
+                # Handle different yfinance return structures
+                link = n.get('link') or n.get('url') or '#'
+                news_items.append({'title': n['title'], 'url': link, 'source': n.get('publisher', 'Yahoo')})
+
         return {
             "price": curr,
             "chg_1d": calc_change(1),
             "chg_1mo": calc_change(21), 
             "chg_1y": calc_change(252),
-            "news": news_titles
+            "news": news_items
         }
     except:
         return None
 
 # --- AI SUMMARIZER ---
-def generate_summary(text_data, context_type):
-    if not text_data: return "No recent news found."
+def generate_summary(news_items, context_type):
+    if not news_items: return "No recent news found."
+    
+    # Prepare text for AI (Title + Source)
+    text_data = "\n".join([f"- {n['title']} ({n['source']})" for n in news_items])
     
     prompt = f"""
-    Summarize this {context_type} news into a single, flowing paragraph (approx 3-4 sentences). 
-    Focus on the most impactful facts.
+    You are an elite financial analyst. Summarize this {context_type} news into 3 distinct, high-impact bullet points. 
+    Focus on the biggest stories and why they matter. Do not just list headlines.
     
     NEWS DATA:
     {text_data}
