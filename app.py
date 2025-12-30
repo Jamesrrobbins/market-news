@@ -31,11 +31,11 @@ def save_watchlist(new_list):
 if 'stock_list' not in st.session_state:
     st.session_state['stock_list'] = load_watchlist()
 
-# --- HEADER & SETTINGS ---
+# --- SETTINGS ---
 with st.expander("⚙️ Settings", expanded=False):
     c1, c2 = st.columns(2)
     with c1:
-        loc = st.text_input("Location", value="Auchterarder, Scotland")
+        loc = st.text_input("Location", value="Auchterarder")
     with c2:
         with st.form("add_stock", clear_on_submit=True):
             new_ticker = st.text_input("Add Ticker")
@@ -58,16 +58,20 @@ col1, col2 = st.columns([1, 2])
 with col1:
     w = engine.get_weather(loc)
     if w and "error" not in w:
-        st.metric(f"{loc[:10]}...", w['temp'], w['condition'])
+        st.metric(f"{loc[:10]}", w['temp'], w['condition'])
         st.caption(f"Wind: {w['wind']}")
     else:
         st.error("Weather N/A")
 
 with col2:
-    with st.spinner("Loading Local News..."):
-        news = engine.get_news(query=loc, limit=5)
+    with st.spinner(f"Searching Google News for {loc}..."):
+        # USE GOOGLE NEWS HERE
+        news = engine.get_google_news(query=f"{loc} Scotland news", limit=5)
         if news:
             st.info(engine.generate_summary(news, loc))
+            with st.expander(f"Read {loc} News"):
+                for n in news:
+                    st.write(f"• [{n['title']}]({n['url']}) - *{n['source']}*")
         else:
             st.warning("No local news found.")
 
@@ -76,14 +80,16 @@ st.divider()
 # --- SECTION 2: GLOBAL & UK ---
 c_glob, c_uk = st.columns(2)
 with c_glob:
-    st.subheader("🌍 Global")
-    n_glob = engine.get_news(category='business', limit=5)
-    st.success(engine.generate_summary(n_glob, "Global"))
+    st.subheader("🌍 Global Biz")
+    # Use Google for broad market news
+    n_glob = engine.get_google_news(query="Stock Market News Global", limit=5)
+    st.success(engine.generate_summary(n_glob, "Global Markets"))
 
 with c_uk:
-    st.subheader("🇬🇧 UK")
-    n_uk = engine.get_news(domains='bbc.co.uk,theguardian.com', limit=5)
-    st.success(engine.generate_summary(n_uk, "UK"))
+    st.subheader("🇬🇧 UK Headlines")
+    # Use Google for UK specifically
+    n_uk = engine.get_google_news(query="UK News Headlines", limit=5)
+    st.success(engine.generate_summary(n_uk, "UK National"))
 
 st.divider()
 
@@ -105,17 +111,17 @@ for ticker in st.session_state['stock_list']:
             save_watchlist(st.session_state['stock_list'])
             st.rerun()
         
-        # 3 METRICS ROW (24H / 1M / 1Y)
+        # 3 METRICS
         m1, m2, m3 = st.columns(3)
         m1.markdown(f"**24H:** :{data['color_1d']}[{data['chg_1d']}]")
         m2.markdown(f"**1M:** :{data['color_1m']}[{data['chg_1m']}]")
         m3.markdown(f"**1Y:** :{data['color_1y']}[{data['chg_1y']}]")
         
         # ANALYSIS
-        st.write("") # Spacer
+        st.write("")
         if data['news']:
-            st.info(engine.generate_summary(data['news'], f"{ticker} Business Updates"))
-            with st.expander(f"Read {ticker} Sources"):
+            st.info(engine.generate_summary(data['news'], f"{ticker}"))
+            with st.expander(f"Sources: {ticker}"):
                 for n in data['news']:
                     st.write(f"• [{n['title']}]({n['url']})")
         else:
