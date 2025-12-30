@@ -6,7 +6,7 @@ import os
 # PAGE SETUP
 st.set_page_config(page_title="Market Prime", page_icon="📉", layout="wide")
 
-# CSS
+# CSS STYLING
 st.markdown("""
 <style>
     .stApp { background-color: #0e1117; }
@@ -26,7 +26,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# PERSISTENCE
+# PERSISTENCE (Save/Load Watchlist)
 WATCHLIST_FILE = "watchlist.json"
 
 def load_watchlist():
@@ -76,7 +76,7 @@ with st.expander("⚙️ Settings & Watchlist Manager", expanded=False):
 
 st.title("📉 Market Prime")
 
-# SECTION A
+# SECTION A: LOCAL INTELLIGENCE
 col_w, col_news = st.columns([1, 2])
 with col_w:
     weather = engine.get_weather(user_location)
@@ -99,7 +99,7 @@ with col_news:
 
 st.divider()
 
-# SECTION B
+# SECTION B: GLOBAL INTELLIGENCE
 g_col, uk_col = st.columns(2)
 with g_col:
     st.subheader("🌍 Global Headlines")
@@ -127,9 +127,7 @@ st.subheader("📈 Active Watchlist")
 if not st.session_state['stock_list']:
     st.info("Your watchlist is empty. Open 'Settings' at the top to add stocks.")
 
-# --- THE FIX IS HERE ---
 for ticker in st.session_state['stock_list']:
-    # Display a loading message while processing each card
     with st.spinner(f"Loading {ticker}..."):
         data = engine.get_stock_data(ticker)
     
@@ -141,6 +139,7 @@ for ticker in st.session_state['stock_list']:
             c3.metric("1M", f"{data['chg_1mo']:.2f}%")
             c4.metric("1Y", f"{data['chg_1y']:.2f}%")
             
+            # Delete Button
             if c5.button("✕", key=f"del_{ticker}"):
                 remove_stock_action(ticker)
                 st.rerun()
@@ -157,7 +156,7 @@ for ticker in st.session_state['stock_list']:
             st.markdown("---")
             
     else:
-        # VISUAL ERROR HANDLING
+        # VISUAL ERROR CARD
         with st.container():
             st.error(f"⚠️ Could not load data for **{ticker}**. It may be delisted or the API is blocking requests.")
             if st.button("Delete", key=f"del_err_{ticker}"):
