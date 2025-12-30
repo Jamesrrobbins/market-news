@@ -77,7 +77,6 @@ st.divider()
 c_glob, c_uk = st.columns(2)
 with c_glob:
     st.subheader("🌍 Global")
-    # This call caused the error before - now fixed in engine
     n_glob = engine.get_news(category='business', limit=5)
     st.success(engine.generate_summary(n_glob, "Global"))
 
@@ -97,31 +96,30 @@ if not st.session_state['stock_list']:
 for ticker in st.session_state['stock_list']:
     data = engine.get_stock_data(ticker)
     
-    # Create Card
     with st.container():
-        # Header Line
-        c1, c2, c3 = st.columns([2, 1, 1])
-        color = "normal"
-        if data['color'] == 'up': color = "green"
-        if data['color'] == 'down': color = "red"
-        
-        c1.markdown(f"### {ticker}")
-        c2.markdown(f"**{data['price']}**")
-        c2.markdown(f":{color}[{data['change']}]")
-        
-        if c3.button("Remove", key=f"del_{ticker}"):
+        # TITLE & PRICE
+        c_head, c_del = st.columns([4, 1])
+        c_head.markdown(f"### {ticker} <span style='font-size:0.8em; color:#aaa'>({data['price']})</span>", unsafe_allow_html=True)
+        if c_del.button("✕", key=f"del_{ticker}"):
             st.session_state['stock_list'].remove(ticker)
             save_watchlist(st.session_state['stock_list'])
             st.rerun()
         
-        # News Body
+        # 3 METRICS ROW (24H / 1M / 1Y)
+        m1, m2, m3 = st.columns(3)
+        m1.markdown(f"**24H:** :{data['color_1d']}[{data['chg_1d']}]")
+        m2.markdown(f"**1M:** :{data['color_1m']}[{data['chg_1m']}]")
+        m3.markdown(f"**1Y:** :{data['color_1y']}[{data['chg_1y']}]")
+        
+        # ANALYSIS
+        st.write("") # Spacer
         if data['news']:
-            st.info(engine.generate_summary(data['news'], ticker))
-            with st.expander(f"Read {ticker} Stories"):
+            st.info(engine.generate_summary(data['news'], f"{ticker} Business Updates"))
+            with st.expander(f"Read {ticker} Sources"):
                 for n in data['news']:
                     st.write(f"• [{n['title']}]({n['url']})")
         else:
-            st.caption("No news found for this stock.")
+            st.caption("No recent news found.")
         
         st.markdown("---")
         
